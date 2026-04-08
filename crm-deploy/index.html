@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Elemento CRM v47</title>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg:        #f0f2f5;
@@ -1450,6 +1451,11 @@
 </head>
 <body>
 <!-- ── LOGIN SCREEN ── -->
+<div id="db-loading" style="display:flex;position:fixed;inset:0;background:#080808;z-index:10000;flex-direction:column;align-items:center;justify-content:center;font-family:'Jost',sans-serif;gap:12px;">
+  <div style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.15);border-top-color:#116dff;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+  <div style="color:rgba(255,255,255,0.5);font-size:13px;font-weight:400;letter-spacing:0.04em;">Conectando base de datos...</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 <div id="login-screen" style="display:none;position:fixed;inset:0;background:#080808;z-index:9999;flex-direction:column;align-items:center;justify-content:center;font-family:'Jost',sans-serif;">
   <div style="width:100%;max-width:400px;padding:0 24px">
     <!-- Logo -->
@@ -2938,6 +2944,34 @@
 </div>
 
 <script>
+  // ── SUPABASE — BASE DE DATOS COMPARTIDA ──────────────────────
+  const SUPABASE_URL = 'https://ymmhdrdmacwlfagwexbg.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltbWhkcmRtYWN3bGZhZ3dleGJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODk2MTMsImV4cCI6MjA5MTI2NTYxM30.iGHMQVScYX6NJQJQN9s-RYrMkNWc1UWAeGgdaIdzhv8';
+  let _sb = null;       // cliente Supabase
+  const DB = {};        // caché en memoria: DB.clientes, DB.usuarios, etc.
+
+  async function inicializarDB() {
+    _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const keys = ['clientes','proyectos','reportes','usuarios','gestores','prospectos','port','actividad'];
+    const { data, error } = await _sb.from('crm_storage').select('id,data').in('id', keys);
+    if (error) { console.error('[CRM] Supabase error:', error); return; }
+    (data || []).forEach(row => { DB[row.id] = row.data; });
+    // Sincronizar variables globales con datos de Supabase
+    if (DB.clientes   != null) clientesData   = DB.clientes;
+    if (DB.gestores   != null) gestoresData   = DB.gestores;
+    if (DB.prospectos != null) prospectosData = DB.prospectos;
+    if (DB.port       != null) portData       = DB.port;
+    if (DB.proyectos  != null) proyectosData  = DB.proyectos;
+    if (DB.reportes   != null) reportesData   = DB.reportes;
+  }
+
+  async function syncToSupabase(key, arr) {
+    if (!_sb) return;
+    const { error } = await _sb.from('crm_storage')
+      .upsert({ id: key, data: arr, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    if (error) console.error('[CRM] sync error:', key, error);
+  }
+
   // ── CATÁLOGO DE SERVICIOS ──
   const SERVICIOS_CATALOGO = {
     pilar1: {
@@ -3271,15 +3305,12 @@
 
   // ── PERSISTENCIA ──
   function cargarClientes() {
-    try {
-      const stored = localStorage.getItem('elemento-crm-clientes');
-      if (stored) return JSON.parse(stored);
-    } catch(e) {}
-    return JSON.parse(JSON.stringify(CLIENTES_INIT));
+    return DB.clientes != null ? DB.clientes : JSON.parse(JSON.stringify(CLIENTES_INIT));
   }
 
   function guardarClientes() {
-    localStorage.setItem('elemento-crm-clientes', JSON.stringify(clientesData));
+    DB.clientes = clientesData;
+    syncToSupabase('clientes', clientesData);
   }
 
   let clientesData = cargarClientes();
@@ -4059,10 +4090,11 @@
     return btoa(unescape(encodeURIComponent(email.toLowerCase() + ':' + pw + ':elem2025')));
   }
   function cargarUsuarios() {
-    return JSON.parse(localStorage.getItem('elemento-crm-usuarios') || '[]');
+    return DB.usuarios != null ? DB.usuarios : [];
   }
   function guardarUsuarios(arr) {
-    localStorage.setItem('elemento-crm-usuarios', JSON.stringify(arr));
+    DB.usuarios = arr;
+    syncToSupabase('usuarios', arr);
   }
   function usuarioActual() {
     const s = JSON.parse(localStorage.getItem('elemento-crm-sesion') || 'null');
@@ -4515,20 +4547,19 @@
   ];
 
   function cargarGestores() {
-    try { const s = localStorage.getItem('elemento-crm-gestores'); if (s) return JSON.parse(s); } catch(e){}
-    return JSON.parse(JSON.stringify(GESTORES_INIT));
+    return DB.gestores != null ? DB.gestores : JSON.parse(JSON.stringify(GESTORES_INIT));
   }
-  function guardarGestores() { localStorage.setItem('elemento-crm-gestores', JSON.stringify(gestoresData)); }
+  function guardarGestores() { DB.gestores = gestoresData; syncToSupabase('gestores', gestoresData); }
 
   let gestoresData = cargarGestores();
 
   // ── PROSPECTOS / COMERCIAL CRUD ──
   function cargarProspectos() {
-    try { const s = localStorage.getItem('elemento-crm-prospectos'); if (s) return JSON.parse(s); } catch(e){}
-    return JSON.parse(JSON.stringify(PROSPECTOS_INIT));
+    return DB.prospectos != null ? DB.prospectos : JSON.parse(JSON.stringify(PROSPECTOS_INIT));
   }
   function guardarProspectos() {
-    localStorage.setItem('elemento-crm-prospectos', JSON.stringify(prospectosData));
+    DB.prospectos = prospectosData;
+    syncToSupabase('prospectos', prospectosData);
   }
   function tieneAccesoComercial() {
     const u = usuarioActual();
@@ -4537,11 +4568,11 @@
 
   // ── PORT ──
   function cargarPort() {
-    try { const s = localStorage.getItem('elemento-crm-port'); if (s) return JSON.parse(s); } catch(e){}
-    return JSON.parse(JSON.stringify(PORT_INIT));
+    return DB.port != null ? DB.port : JSON.parse(JSON.stringify(PORT_INIT));
   }
   function guardarPort() {
-    localStorage.setItem('elemento-crm-port', JSON.stringify(portData));
+    DB.port = portData;
+    syncToSupabase('port', portData);
   }
   function tieneAccesoPort() {
     const u = usuarioActual();
@@ -5200,10 +5231,9 @@
   ];
 
   function cargarProyectos() {
-    try { const s = localStorage.getItem('elemento-crm-proyectos'); if (s) return JSON.parse(s); } catch(e){}
-    return JSON.parse(JSON.stringify(PROYECTOS_INIT));
+    return DB.proyectos != null ? DB.proyectos : JSON.parse(JSON.stringify(PROYECTOS_INIT));
   }
-  function guardarProyectos() { localStorage.setItem('elemento-crm-proyectos', JSON.stringify(proyectosData)); }
+  function guardarProyectos() { DB.proyectos = proyectosData; syncToSupabase('proyectos', proyectosData); }
 
   let proyectosData = cargarProyectos();
   let proyectoActivoId = null;
@@ -5575,10 +5605,13 @@
   };
 
   function cargarActividad() {
-    try { const s = localStorage.getItem('elemento-crm-actividad'); if (s) return JSON.parse(s); } catch(e) {}
-    return [];
+    return DB.actividad != null ? DB.actividad : [];
   }
-  function guardarActividad(log) { localStorage.setItem('elemento-crm-actividad', JSON.stringify(log.slice(0, 200))); }
+  function guardarActividad(log) {
+    const trimmed = log.slice(0, 200);
+    DB.actividad = trimmed;
+    syncToSupabase('actividad', trimmed);
+  }
 
   function registrarActividad(tipo, titulo, meta, extra) {
     const u = usuarioActual();
@@ -5957,10 +5990,9 @@
   ];
 
   function cargarReportes() {
-    try { const s = localStorage.getItem('elemento-crm-reportes'); if (s) return JSON.parse(s); } catch(e) {}
-    return JSON.parse(JSON.stringify(REPORTES_INIT));
+    return DB.reportes != null ? DB.reportes : JSON.parse(JSON.stringify(REPORTES_INIT));
   }
-  function guardarReportes() { localStorage.setItem('elemento-crm-reportes', JSON.stringify(reportesData)); }
+  function guardarReportes() { DB.reportes = reportesData; syncToSupabase('reportes', reportesData); }
 
   let reportesData = cargarReportes();
   let reporteActivoId = null;
@@ -6568,7 +6600,7 @@
     actualizarEstadoGCal();
   }
 
-  window.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('DOMContentLoaded', async () => {
     // Instrucciones GCal: mostrar el origen actual dinámicamente
     const gcalHint = document.getElementById('gcal-origin-hint');
     if (gcalHint) gcalHint.textContent = window.location.origin;
@@ -6580,6 +6612,11 @@
       location.reload();
       return;
     }
+
+    // Cargar datos compartidos desde Supabase
+    try { await inicializarDB(); } catch(e) { console.error('[CRM] DB init failed:', e); }
+    document.getElementById('db-loading').style.display = 'none';
+
     migrarGestoresAUsuarios();
     const usuarios = cargarUsuarios();
     // Primera vez: ningún usuario registrado → setup inicial
